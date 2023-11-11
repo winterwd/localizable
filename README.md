@@ -1,0 +1,2 @@
+# localizable
+Localizable For Soooooome
