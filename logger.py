@@ -2,11 +2,17 @@
 # logger.py
 
 import logging
+import os
+
 
 def setup_logger(log_file=None):
     # 如果未指定日志文件路径，使用默认路径
     if log_file is None:
-        log_file = './logger.log'
+        log_file = "./logger.log"
+
+    # 文件路径不存在，则创建
+    if not os.path.exists(os.path.dirname(log_file)):
+        os.makedirs(os.path.dirname(log_file))
 
     # 创建日志记录器
     logger = logging.getLogger(__name__)
@@ -17,7 +23,7 @@ def setup_logger(log_file=None):
     file_handler.setLevel(logging.DEBUG)
 
     # 创建格式化程序
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     file_handler.setFormatter(formatter)
 
     # 将处理程序添加到记录器
