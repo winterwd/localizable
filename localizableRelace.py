@@ -19,16 +19,16 @@ DESPATH = "./test/localString"
 # 需要进行翻译的语言(如果先运行了 findLocalizable，就会生成以下路径的文件)
 LOCALIZABLE_PATH = "./result/Localizable.strings"
 # /zh-Hans.lproj/Localizable.strings
-TARGET_LOCALIZABLE_DIR = "./result/Localizable/"
-UNKNOWN_LOCALIZABLE_LOG = "./result/Localizable/unknown.log"
-logger = setup_logger(f"{TARGET_LOCALIZABLE_DIR}logger.log")
+TARGET_LOCALIZABLE_DIR = "./result/Localizable"
+UNKNOWN_LOCALIZABLE_LOG = f'{TARGET_LOCALIZABLE_DIR}/unknown.log'
+logger = setup_logger(f'{TARGET_LOCALIZABLE_DIR}/logger.log')
 
-# 正则匹配 "重新添加" = <#code#>;
+# 正则匹配 "重新添加" = "<#code#>";
 PATTERN = r'"(?:\\.|[^"\\])*"'
-REPLACE_TEXT = "<#code#>"
+REPLACE_TEXT = '<#code#>'
 
 # 在该文件中找不到对应的 key=value，则注释这行
-ANNOTATION_FILE_NAME = "zh-Hans"
+ANNOTATION_FILE_NAME = 'zh-Hans'
 
 
 # 单行注释
@@ -46,7 +46,7 @@ def create_localizable(source_file, keys):
     for key in keys:
         logger.info(f"create_localizable file :{key}/Localizable.strings")
         # 目标文件路径
-        target_file = f"{TARGET_LOCALIZABLE_DIR}{key}/Localizable.strings"
+        target_file = f"{TARGET_LOCALIZABLE_DIR}/{key}/Localizable.strings"
         # 确保目标目录存在
         os.makedirs(os.path.dirname(target_file), exist_ok=True)
         try:
@@ -70,7 +70,7 @@ def replace_localizable(datas, localKeyLines):
     for file_name, zh_dict in datas.items():
         # file_name: zh_CN.lproj
         # zh_dict: {key:value}
-        target_file = f"{TARGET_LOCALIZABLE_DIR}{file_name}/Localizable.strings"
+        target_file = f"{TARGET_LOCALIZABLE_DIR}/{file_name}/Localizable.strings"
         if not os.path.exists(target_file):
             logger.error(f"replace_localizable not find lang:{file_name} file")
             continue
@@ -83,8 +83,11 @@ def replace_localizable(datas, localKeyLines):
                 un_find_lang(key)
 
                 if ANNOTATION_FILE_NAME in file_name:
-                    # 如果是 zh-hans.lproj 则在该行最前面加上注释符号 //
-                    replace_text(target_file, line, value, is_annotation=True)
+                    # # 如果是 zh-hans.lproj 则在该行最前面加上注释符号 //
+                    # replace_text(target_file, line, value, is_annotation=True)
+
+                    # 如果是 zh-hans.lproj 用 key 替换
+                    replace_text(target_file, line, key)
             else:
                 replace_text(target_file, line, value)
 
@@ -117,7 +120,7 @@ def replace_text(path, num, text, is_annotation=False):
         if old_char not in line_to_replace:
             # 不存在 REPLACE_TEXT
             return
-        
+
         if is_annotation:
             # 加上注释符号 //
             modified_line = "// " + line_to_replace
@@ -137,7 +140,7 @@ def replace_text(path, num, text, is_annotation=False):
         logger.info(f"行号 {line_number_to_replace} 超出文本范围。")
 
 
-# 将内容以字典形式返回
+# 解析取出 Localizable.strings 中的需要翻译的文本，将内容以字典形式返回
 # file_path: 'xx/en.lproj/Localizable.strings'
 # "key" = "value";
 def parse_localizable(file_path):
@@ -166,7 +169,7 @@ def parse_localizable(file_path):
             continue
 
         # 单行注释
-        if line.startswith("//"):
+        if isSignalNote(line):
             continue
 
         # 剔除文本末尾的英文分号
@@ -174,6 +177,9 @@ def parse_localizable(file_path):
         try:
             # 将行分割成两部分
             key, value = line.strip().split("=", 1)
+            # 去除双引号和转义字符，只保留内部内容，并去除首尾的双引号
+            key = key.strip()[1:-1].replace('\\"', '"')
+            value = value.strip()[1:-1].replace('\\"', '"')
             zh_dict[key] = value
         except:
             logger.error(f"文本处理异常：{line}")
@@ -233,6 +239,8 @@ def parse_local_line_number(filePath):
         try:
             # 将行分割成两部分
             key, value = text.strip().split("=", 1)
+            # 去除双引号和转义字符，只保留内部内容，并去除首尾的双引号
+            key = key.strip()[1:-1].replace('\\"', '"')
             data[key] = i
         except:
             logger.error(f"文本处理读取行号异常：{text}")
