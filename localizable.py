@@ -16,30 +16,32 @@ import xlwings as xw
 from logger import setup_logger
 from DotPrinter import DotPrinter
 
-#  多语言翻译文件 Excel 格式："{"zh-Hans":"xxx","zh-Hant":"xxx","en":"xxx"}"
-DESPATH = "/xxx.xlsx"
+# 多语言翻译文件 Excel 文件
+# line1: 语言类型 = zh-Hans, en ...
+EXCEL_PATH = "./test/localString/localizable.xlsx"
 # 需要进行翻译的语言(如果先运行了 findLocalizable，就会生成以下路径的文件)
 LOCALIZABLE_PATH = "./result/Localizable.strings"
 # /zh-Hans.lproj/Localizable.strings
-TARGET_LOCALIZABLE_DIR = "./result/Localizable/"
-UNKNOWN_LOCALIZABLE_LOG = "./result/Localizable/unknown.log"
-logger = setup_logger(f'{TARGET_LOCALIZABLE_DIR}logger.log')
+TARGET_LOCALIZABLE_DIR = "./result/Localizable"
+UNKNOWN_LOCALIZABLE_LOG = f"{TARGET_LOCALIZABLE_DIR}/unknown.log"
+logger = setup_logger(f"{TARGET_LOCALIZABLE_DIR}/logger.log")
 
-# 正则匹配「"重新添加" = <#code#>;」
+# 正则匹配 "重新添加" = "<#code#>";
 PATTERN = r'"(?:\\.|[^"\\])*"'
 REPLACE_TEXT = '<#code#>'
 
 
 # 单行注释
 def isSignalNote(string):
-    if '//' in string:
+    if string.startswith("//"):
         return True
     if string.startswith('#pragma'):
         return True
     return False
 
 
-#  解析取出 Excel 中的数据
+# 解析取出 Excel 中的数据
+# return {"zh-Hans": {"中文": "中文", "英文": "英文"}, "en": {"chinese": "chinese", "english": "english"}...}
 def parse_xlsx(path):
     try:
         # 打开 Excel 文件
@@ -48,9 +50,25 @@ def parse_xlsx(path):
         sheet = wb.sheets[0]
         # 获取工作表的使用范围（非空单元格的范围）
         used_range = sheet.used_range
-        # 获取最后一列的数据
-        last_column_data = used_range[:, -1].value
-        return [item for item in last_column_data if item is not None]
+
+        # 获取数据范围
+        data_range = sheet.range("A1").expand("table")
+
+        # 获取第一行和第一列的标签
+        column_labels = data_range[0, 0:].value
+        row_labels = data_range[1:, 0].value
+
+        # 创建空字典来存储结果
+        result_dict = {}
+
+        # 遍历数据并构建字典
+        for i, col_label in enumerate(column_labels):
+            inner_dict = {}
+            for j, row_label in enumerate(row_labels):
+                inner_dict[row_label] = data_range[j + 1, i].value
+            result_dict[col_label] = inner_dict
+
+        return result_dict
     except Exception as e:
         logger.error(f"An error occurred: {str(e)}")
         return None
@@ -62,29 +80,18 @@ def parse_xlsx(path):
         xw.apps.active.quit()
             
 
-
-def parse_xlsx_data(array):
-    # 取出数据中的中文作为 key
-    new_dict = {}
-    for d in array:
-        try:
-            temp = d.replace('\n', '')
-            t_dict = json.loads(temp)
-            value = t_dict['zh-Hans']
-            if value is None:
-                logger.error('parse_xlsx_data「zh-Hans」is None')
-                return None
-            new_dict[value] = t_dict
-        except KeyError:
-            continue
-    return new_dict
-
-
+# 解析取出 Localizable.strings 中的需要翻译的文本
+# file_path: 'xx/en.lproj/Localizable.strings'
+# return: {"key": lineNumber,...};
 def parse_localizable(path):
     # 获取需要翻译的数据，将作为 key
     f = open(path)
-    data = []
+    data = {}
     for line, text in enumerate(f):
+        text = text.strip()
+        if not text:
+            continue
+
         # 单行注释
         if isSignalNote(text):
             continue
@@ -96,19 +103,18 @@ def parse_localizable(path):
             match = matches[0]
             # 去除双引号和转义字符，只保留内部内容，并去除首尾的双引号
             match = match[1:-1].replace('\\"', '"')
-            data.append({match: line})
+            data[match] = line
 
     return data
 
 
 # 根据翻译中的语言类型，创建多语言文本
-def create_localizable(source_file, d):
-    temp = d.replace('\n', '')
-    zh_dict = json.loads(temp)
-    for key in zh_dict:
-        logger.info(f'create_localizable file :{key}.lproj/Localizable.strings')
+# keys: ["en", "cn"]
+def create_localizable(source_file, keys):
+    for key in keys:
+        logger.info(f"create_localizable file :{key}.lproj/Localizable.strings")
         # 目标文件路径
-        target_file = f'{TARGET_LOCALIZABLE_DIR}{key}.lproj/Localizable.strings'
+        target_file = f"{TARGET_LOCALIZABLE_DIR}/{key}.lproj/Localizable.strings"
         # 确保目标目录存在
         os.makedirs(os.path.dirname(target_file), exist_ok=True)
         try:
@@ -121,28 +127,31 @@ def create_localizable(source_file, d):
             logger.error(f"复制文件时出现错误：{str(e)}")
 
 
-def replace_localizable(zh_dict, local_list):
+# datas: {"zh-Hans":{"中文":"中文",...}, "en": :{"en":"en",...}}
+# key_lineNumber: {"中文":1,"en":2}
+def replace_localizable(datas, key_lineNumber):
     try:
         os.remove(UNKNOWN_LOCALIZABLE_LOG)
     except Exception as e:
         logger.error(f'删除文件时出现错误: {e}')
 
-    for local_dict in local_list:
-        for key, line in local_dict.items():
-            language = zh_dict.get(key, None)
-            if language is None:
-                logger.info(f'replace_localizable not find「{key}」')
+    langs = datas.keys()
+    for lang in langs:
+        target_file = f"{TARGET_LOCALIZABLE_DIR}/{lang}.lproj/Localizable.strings"
+        if not os.path.exists(target_file):
+            logger.info(f"replace_localizable not find lang:{lang} file")
+            continue
+
+        logger.info(f"replace_localizable lang:「{lang}」file")
+        lang_datas = datas.get(lang)
+        # 开始替换每一个语言中的文本
+        for key, line in key_lineNumber.items():
+            text = lang_datas.get(key, None)
+            if text is None:
+                logger.info(f"replace_localizable not find「{key}」")
                 un_find_lang(key)
             else:
-                for lang, text in language.items():
-                    target_file = f'{TARGET_LOCALIZABLE_DIR}{lang}.lproj/Localizable.strings'
-                    if not os.path.exists(target_file):
-                        logger.info(f'replace_localizable not find lang:{lang} file')
-                        continue
-                    if text is None or text == '':
-                        continue
-                    # logger.info(f'replace_localizable lang:{lang} text:{text}')
-                    replace_text(target_file, line, text)
+                replace_text(target_file, line, text)
 
 
 def un_find_lang(text):
@@ -198,11 +207,13 @@ def main():
         os.makedirs(output_dir)
         logger.info('创建目录：' + output_dir)
 
-    datas = parse_xlsx(DESPATH)
-    zh_CN_dict = parse_xlsx_data(datas)
-    create_localizable(localizable_path, datas[0])
-    localizable_list = parse_localizable(localizable_path)
-    replace_localizable(zh_CN_dict, localizable_list)
+    datas = parse_xlsx(EXCEL_PATH)
+    if datas is None:
+        return
+
+    create_localizable(localizable_path, datas.keys())
+    key_lineNumber = parse_localizable(localizable_path)
+    replace_localizable(datas, key_lineNumber)
 
 
 if __name__ == '__main__':
