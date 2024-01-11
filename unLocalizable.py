@@ -1,7 +1,7 @@
 # coding=utf-8
 """
 :file: unLocalizable
-:desc: 查找项目中未国际化的脚本,不准确仅供参考
+:desc: 查找项目中未国际化的脚本,不准确仅供参考 适用于中文
 """
 
 import os
@@ -18,15 +18,6 @@ DESPATH = "./test"
 
 # 解析结果存放的路径
 WDESPATH = "./result/unLocalizable.log"
-
-# # 正则匹配(修改为自己的规则) @"你好!".yg_localized
-# PATTERN = r'@"([^\"]*[\u4e00-\u9fa5]+[^\"]*)"(?!\s*\.yg_localized)'
-
-# 正则匹配 NSLocalizedString(@"你好!", nil)
-# PATTERN = r"(?<!NSLocalizedString\()\".*?[\u4e00-\u9fa5a-zA-Z]+.*?\"(?!, nil\))"
-PATTERN = r"(?<!NSLocalizedString\()\".*?[\u4e00-\u9fa5]+.*?\"(?!, nil\))"
-# swift NSLocalizedString("你好!", comment: "")
-SWIFT_PATTERN = r"(?<!NSLocalizedString\()\".*?[\u4e00-\u9fa5]+.*?\"(?!, comment: \"\")"
 
 # 目录黑名单，这个目录下所有的文件将被忽略
 BLACKDIRLIST = [
@@ -61,7 +52,15 @@ def isSignalNote(str):
 
 
 def isLogMsg(str):
-    if str.startswith("NSLog") or str.startswith("FLOG") or str.startswith("print"):
+    if str.startswith("NSLog"):
+        return True
+    if str.startswith("FLOG"):
+        return True
+    if str.startswith("print"):
+        return True
+    if str.startswith("NSAssert"):
+        return True
+    if str.startswith("assert"):
         return True
     return False
 
@@ -74,6 +73,14 @@ def isSwiftFile(filePath):
 # 是否为OC文件
 def isOCFile(filePath):
     return filePath.endswith(".m")
+
+
+# 使用正则表达式匹配中文
+def remove_special_characters(input_string):
+    # 匹配中文、英文和数字，并将其保留 r"[^\u4e00-\u9fa5a-zA-Z0-9]"
+    # 匹配中文 r"[^\u4e00-\u9fa5]"
+    result = re.sub(r"[^\u4e00-\u9fa5]", "", input_string)
+    return result
 
 
 def unlocalizedStrs(filePath):
@@ -99,24 +106,41 @@ def unlocalizedStrs(filePath):
         if isLogMsg(line):
             continue
 
-        # 正则表达式匹配
-        matches: list
-        if isOCFile(filePath):
-            matches = re.findall(PATTERN, line)
-        elif isSwiftFile(filePath):
-            matches = re.findall(SWIFT_PATTERN, line)
-        else:
-            continue
+        # 替换文本中出现的\"转义字符 "abcd\"efg\"hij" -> "abcd&&efg&&hij"
+        line_text = line.replace('\\"', "&&")
+        # 找出文本中的所有 "" 的字符串
+        matches = re.findall(r"\".*?\"", line_text)
 
         count = len(matches)
         if count > 0:
-            if not isHaveWriteFileName:
-                wf.write("\n" + fileName + "\n")
-                isHaveWriteFileName = True
-
+            write_texts = []
             for item in matches:
-                print("match = " + item)
-                wf.write(str(index + 1) + ": " + item + SEPREATE + line + "\n")
+                # 去除字符串中所有的特殊字符
+                if not remove_special_characters(item):
+                    continue
+                # 在对该 line 文本替换后，是否不会发生改变，如果没有变化那就说明没有国际化
+                # [String:NSLocalizedString(@"abcd\"efg\"hij", nil) object] -> [String: object]
+                if isOCFile(filePath):
+                    temp = line_text.replace(f"NSLocalizedString(@{item}", "")
+                elif isSwiftFile(filePath):
+                    temp = line_text.replace(f"NSLocalizedString({item}", "")
+                else:
+                    continue
+
+                if temp == line_text:
+                    # 还原 && 去除字符串中所有的特殊字符
+                    item = item.replace("&&", '\\"')
+                    write_texts.append(item)
+
+            if len(write_texts) > 0:
+                if not isHaveWriteFileName:
+                    wf.write("\n" + filePath)
+                    wf.write("\n" + fileName + "\n")
+                    isHaveWriteFileName = True
+
+                for item in write_texts:
+                    print("match = " + item)
+                    wf.write(str(index + 1) + ": " + item + SEPREATE + line + "\n")
 
 
 def findFromFile(path):
