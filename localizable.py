@@ -14,7 +14,6 @@ import shutil
 import json
 import xlwings as xw
 from logger import setup_logger
-from DotPrinter import DotPrinter
 
 # 多语言翻译文件 Excel 文件
 # line1: 语言类型 = zh-Hans, en ...
@@ -23,19 +22,19 @@ EXCEL_PATH = "./test/localString/localizable.xlsx"
 LOCALIZABLE_PATH = "./result/Localizable.strings"
 # /zh-Hans.lproj/Localizable.strings
 TARGET_LOCALIZABLE_DIR = "./result/Localizable"
-UNKNOWN_LOCALIZABLE_LOG = f"{TARGET_LOCALIZABLE_DIR}/unknown.log"
+UNKNOWN_LOCALIZABLE_LOG = f"{TARGET_LOCALIZABLE_DIR}/noLocalizable.log"
 logger = setup_logger(f"{TARGET_LOCALIZABLE_DIR}/logger.log")
 
 # 正则匹配 "重新添加" = "<#code#>";
 PATTERN = r'"(?:\\.|[^"\\])*"'
-REPLACE_TEXT = '<#code#>'
+REPLACE_TEXT = "<#code#>"
 
 
 # 单行注释
 def isSignalNote(string):
     if string.startswith("//"):
         return True
-    if string.startswith('#pragma'):
+    if string.startswith("#pragma"):
         return True
     return False
 
@@ -43,13 +42,12 @@ def isSignalNote(string):
 # 解析取出 Excel 中的数据
 # return {"zh-Hans": {"中文": "中文", "英文": "英文"}, "en": {"chinese": "chinese", "english": "english"}...}
 def parse_xlsx(path):
+    print(f"Processing file: {path}")
     try:
         # 打开 Excel 文件
         wb = xw.Book(path)
         # 选择第一个工作表
         sheet = wb.sheets[0]
-        # 获取工作表的使用范围（非空单元格的范围）
-        used_range = sheet.used_range
 
         # 获取数据范围
         data_range = sheet.range("A1").expand("table")
@@ -70,20 +68,21 @@ def parse_xlsx(path):
 
         return result_dict
     except Exception as e:
-        logger.error(f"An error occurred: {str(e)}")
+        print(f"An error occurred: {str(e)}")
         return None
     finally:
         # 关闭 Excel 文件
-        if 'wb' in locals():
+        if "wb" in locals():
             wb.close()
         # 退出 Excel 应用程序
         xw.apps.active.quit()
-            
+
 
 # 解析取出 Localizable.strings 中的需要翻译的文本
 # file_path: 'xx/en.lproj/Localizable.strings'
 # return: {"key": lineNumber,...};
 def parse_localizable(path):
+    print(f"Processing parse_localizable file: {path}")
     # 获取需要翻译的数据，将作为 key
     f = open(path)
     data = {}
@@ -96,13 +95,17 @@ def parse_localizable(path):
         if isSignalNote(text):
             continue
 
-        # 使用 re 模块的 findall 函数进行匹配
-        matches = re.findall(PATTERN, text)
+        # 替换文本中出现的\"转义字符 "abcd\"efg\"hij" -> "abcd&&efg&&hij"
+        line_text = text.replace('\\"', "&&")
+        # 找出文本中的所有 "" 的字符串
+        matches = re.findall(r"\".*?\"", line_text)
         count = len(matches)
-        if count == 1:
+        if count > 1:
             match = matches[0]
-            # 去除双引号和转义字符，只保留内部内容，并去除首尾的双引号
-            match = match[1:-1].replace('\\"', '"')
+            # 还原 && -> \\"
+            match = match.replace("&&", '\\"')
+            # 去除首尾的双引号
+            match = match.strip('"')
             data[match] = line
 
     return data
@@ -112,7 +115,7 @@ def parse_localizable(path):
 # keys: ["en", "cn"]
 def create_localizable(source_file, keys):
     for key in keys:
-        logger.info(f"create_localizable file :{key}.lproj/Localizable.strings")
+        print(f"create_localizable file :{key}.lproj/Localizable.strings")
         # 目标文件路径
         target_file = f"{TARGET_LOCALIZABLE_DIR}/{key}.lproj/Localizable.strings"
         # 确保目标目录存在
@@ -120,7 +123,6 @@ def create_localizable(source_file, keys):
         try:
             # 复制文件 A 的内容到文件 B
             shutil.copyfile(source_file, target_file)
-            # logger.info(f"文件 '{source_file}' 的内容已成功复制到文件 '{target_file}'。")
         except FileNotFoundError:
             logger.error(f"源文件 '{source_file}' 不存在。")
         except Exception as e:
@@ -133,38 +135,41 @@ def replace_localizable(datas, key_lineNumber):
     try:
         os.remove(UNKNOWN_LOCALIZABLE_LOG)
     except Exception as e:
-        logger.error(f'删除文件时出现错误: {e}')
+        pass
 
     langs = datas.keys()
     for lang in langs:
+        un_find_lang(f"\n-----「{lang}.lproj」not find localizable\n")
+
         target_file = f"{TARGET_LOCALIZABLE_DIR}/{lang}.lproj/Localizable.strings"
         if not os.path.exists(target_file):
-            logger.info(f"replace_localizable not find lang:{lang} file")
+            print(f"replace_localizable not find lang:{lang} file")
             continue
 
-        logger.info(f"replace_localizable lang:「{lang}」file")
+        print(f"replace_localizable lang:「{lang}」file")
         lang_datas = datas.get(lang)
         # 开始替换每一个语言中的文本
         for key, line in key_lineNumber.items():
             text = lang_datas.get(key, None)
             if text is None:
-                logger.info(f"replace_localizable not find「{key}」")
-                un_find_lang(key)
+                print(f"replace_localizable not find「{key}」")
+                un_find_lang(f'"{key}"')
             else:
+                print(f"replace_localizable「{key}」")
                 replace_text(target_file, line, text)
 
 
 def un_find_lang(text):
     path = UNKNOWN_LOCALIZABLE_LOG
     # 打开文件以追加模式（如果文件不存在，则创建它）
-    with open(path, 'a', encoding='utf-8') as file:
-        file.writelines(f'"{text}"'+'\n')
+    with open(path, "a", encoding="utf-8") as file:
+        file.writelines(text + "\n")
 
 
 # 替换文本中的给定行数中的指定字符
 def replace_text(path, num, text):
     # 读取文件并将内容分割成行
-    with open(path, 'r') as file:
+    with open(path, "r") as file:
         lines = file.readlines()
 
     # 要替换的行号
@@ -172,7 +177,7 @@ def replace_text(path, num, text):
 
     # 要替换的字符
     old_char = REPLACE_TEXT
-    new_char = f'"{text}"'
+    new_char = text
 
     # 检查行号是否在有效范围内
     if 0 <= line_number_to_replace < len(lines):
@@ -186,18 +191,18 @@ def replace_text(path, num, text):
         lines[line_number_to_replace] = modified_line
 
         # 将修改后的文本写回文件
-        with open(path, 'w') as file:
+        with open(path, "w") as file:
             file.writelines(lines)
 
-        # logger.info(f"替换行 {line_number_to_replace + 1} 中的 '{old_char}' 为 '{new_char}' 完成。")
+        # print(f"替换行 {line_number_to_replace + 1} 中的 '{old_char}' 为 '{new_char}' 完成。")
     else:
-        logger.info(f"行号 {line_number_to_replace} 超出文本范围。")
+        logger.error(f"行号 {line_number_to_replace} 超出文本范围。")
 
 
 def main():
     localizable_path = LOCALIZABLE_PATH
     if not os.path.exists(localizable_path):
-        logger.error('LOCALIZABLE_PATH 不存在 = ' + localizable_path)
+        print("LOCALIZABLE_PATH 不存在 = " + localizable_path)
         sys.exit()
 
     file_path = TARGET_LOCALIZABLE_DIR
@@ -205,7 +210,7 @@ def main():
     output_dir = os.path.dirname(file_path)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-        logger.info('创建目录：' + output_dir)
+        print("创建目录：" + output_dir)
 
     datas = parse_xlsx(EXCEL_PATH)
     if datas is None:
@@ -216,9 +221,6 @@ def main():
     replace_localizable(datas, key_lineNumber)
 
 
-if __name__ == '__main__':
-    dot = DotPrinter()
-    dot.start()
+if __name__ == "__main__":
     main()
-    dot.stop()
-    print('已解析完成，结果已保存 : ' + TARGET_LOCALIZABLE_DIR)
+    print("已解析完成，结果已保存 : " + TARGET_LOCALIZABLE_DIR)
