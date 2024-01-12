@@ -20,15 +20,15 @@ DESPATH = "./test/localString"
 LOCALIZABLE_PATH = "./result/Localizable.strings"
 # /zh-Hans.lproj/Localizable.strings
 TARGET_LOCALIZABLE_DIR = "./result/Localizable"
-UNKNOWN_LOCALIZABLE_LOG = f'{TARGET_LOCALIZABLE_DIR}/unknown.log'
-logger = setup_logger(f'{TARGET_LOCALIZABLE_DIR}/logger.log')
+UNKNOWN_LOCALIZABLE_LOG = f"{TARGET_LOCALIZABLE_DIR}/unknown.log"
+logger = setup_logger(f"{TARGET_LOCALIZABLE_DIR}/logger.log")
 
 # 正则匹配 "重新添加" = "<#code#>";
 PATTERN = r'"(?:\\.|[^"\\])*"'
-REPLACE_TEXT = '<#code#>'
+REPLACE_TEXT = "<#code#>"
 
 # 在该文件中找不到对应的 key=value，则注释这行
-ANNOTATION_FILE_NAME = 'zh-Hans'
+ANNOTATION_FILE_NAME = "zh-Hans"
 
 
 # 单行注释
@@ -177,9 +177,9 @@ def parse_localizable(file_path):
         try:
             # 将行分割成两部分
             key, value = line.strip().split("=", 1)
-            # 去除双引号和转义字符，只保留内部内容，并去除首尾的双引号
-            key = key.strip()[1:-1].replace('\\"', '"')
-            value = value.strip()[1:-1].replace('\\"', '"')
+            # 去除首尾的空格，去除首尾的双引号
+            key = key.strip()[1:-1]
+            value = value.strip()[1:-1]
             zh_dict[key] = value
         except:
             logger.error(f"文本处理异常：{line}")
